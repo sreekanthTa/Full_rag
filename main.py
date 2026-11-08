@@ -5,11 +5,13 @@ Endpoints:
   POST /upload   -> upload a PDF, chunk + embed + store in Chroma
   POST /ask      -> ask a question, get a RAG answer using both memory tiers
   GET  /memory   -> list long-term memories for a session
+  GET  /history  -> fetch a session's recent short-term chat history
   DELETE /memory -> clear long-term memories + short-term buffer for a session
 """
 from __future__ import annotations
 
 import shutil
+import threading
 import uuid
 from pathlib import Path
 
@@ -18,12 +20,24 @@ from pydantic import BaseModel
 
 import rag_engine
 from config import settings
-from memory import clear_short_term, mem0_clear, mem0_get
+from memory import clear_short_term, load_recent_messages, mem0_clear, mem0_get
 
 app = FastAPI(title="RAG Assistant", version="1.0.0")
 
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
+
+
+@app.on_event("startup")
+def _warm_database() -> None:
+    """Open the Postgres connection in the background so the first
+    /history call doesn't pay the ~15s cold-start cost."""
+    if settings.postgres_ready:
+        threading.Thread(
+            target=load_recent_messages,
+            args=("__warmup__",),
+            daemon=True,
+        ).start()
 
 
 # ---------------------------------------------------------------------------
@@ -96,6 +110,20 @@ def ask(req: AskRequest) -> dict:
 def list_memory(session_id: str = "default") -> dict:
     items = mem0_get(session_id)
     return {"session_id": session_id, "memories": items}
+
+
+@app.get("/history")
+def get_history(session_id: str = "default") -> dict:
+    """Return the session's recent short-term chat history, oldest first."""
+    messages = load_recent_messages(session_id)
+    history = [
+        {
+            "role": "user" if m.type == "human" else "assistant",
+            "content": m.content,
+        }
+        for m in messages
+    ]
+    return {"session_id": session_id, "history": history}
 
 
 @app.delete("/memory")

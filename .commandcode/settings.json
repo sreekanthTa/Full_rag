@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Shell(.venvScriptspython.exe:*)",
+      "Shell(netstat:*)",
+      "Shell(findstr:*)"
+    ],
+    "deny": [],
+    "defaultMode": "default"
+  }
+}

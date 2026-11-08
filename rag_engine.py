@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Optional
 
 import chromadb
-from langchain_community.embeddings import DeterministicFakeEmbedding
 from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_community.document_loaders import PyPDFLoader
@@ -25,7 +24,6 @@ from memory import load_recent_messages, save_exchange, mem0_add, mem0_get
 _chroma_client = None
 _collection = None
 _llm = None
-_embeddings = None
 
 
 def get_client() -> chromadb.ClientAPI:
@@ -46,15 +44,6 @@ def get_collection() -> chromadb.Collection:
     return _collection
 
 
-def get_embeddings():
-    """Deterministic local embedding so upload & query vectors always match
-    without calling an external service."""
-    global _embeddings
-    if _embeddings is None:
-        _embeddings = DeterministicFakeEmbedding(size=384)
-    return _embeddings
-
-
 def get_llm() -> ChatGroq:
     global _llm
     if _llm is None:
@@ -69,9 +58,6 @@ def get_llm() -> ChatGroq:
 # ---------------------------------------------------------------------------
 # Ingest
 # ---------------------------------------------------------------------------
-
-def embed_text(text: str) -> list[float]:
-    return get_embeddings().embed_query(text)
 
 
 def add_pdf(pdf_path: str | Path) -> int:
@@ -110,10 +96,14 @@ def add_pdf(pdf_path: str | Path) -> int:
 
 
 def search(query: str, top_k: int = 4) -> list[str]:
-    """Return the top_k most relevant chunk texts for a query."""
+    """Return the top_k most relevant chunk texts for a query.
+
+    The query text is passed straight to Chroma so it embeds with the same
+    model used at ingestion time (Chroma's default embedding function).
+    """
     collection = get_collection()
     result = collection.query(
-        query_embeddings=[embed_text(query)],
+        query_texts=[query],
         n_results=top_k,
     )
     docs = result.get("documents") or []
