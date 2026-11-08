@@ -12,3 +12,5 @@ pypdf
 mem0ai
 psycopg[binary]
 nemoguardrails
+agent-governance-toolkit
+agent-governance-toolkit-integrations[langchain]

@@ -41,6 +41,12 @@ class Settings(BaseSettings):
     # NemoGuardrails
     guardrails_enabled: bool = True
 
+    # Microsoft Agent Governance Toolkit (AGT)
+    agt_enabled: bool = True
+    agt_policy_dir: str = str(BASE_DIR / "agt" / "policies")
+    agt_agent_id: str = "rag-assistant"
+    agt_session_id: str = "default"
+
     @property
     def groq_ready(self) -> bool:
         return bool(self.groq_api_key)

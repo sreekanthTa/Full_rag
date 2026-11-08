@@ -16,6 +16,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from config import settings
 from memory import load_recent_messages, save_exchange, mem0_add, mem0_get
+from agt import get_agt_governance
 
 # ---------------------------------------------------------------------------
 # Shared resources
@@ -28,6 +29,8 @@ _collection = None
 _llm = None
 _rails = None
 _rails_ready = False
+_agt = None
+_agt_ready = False
 
 
 def get_client() -> chromadb.ClientAPI:
@@ -41,6 +44,11 @@ def get_client() -> chromadb.ClientAPI:
 def get_collection() -> chromadb.Collection:
     global _collection
     if _collection is None:
+        agt = get_agt_governance()
+        if agt is not None:
+            allowed, reason = agt.evaluate_tool_call("chroma_query", {"operation": "get_or_create"})
+            if not allowed:
+                raise PermissionError(f"AGT denied chroma_query: {reason}")
         _collection = get_client().get_or_create_collection(
             name=settings.collection_name,
             metadata={"hnsw:space": "cosine"},
@@ -51,6 +59,11 @@ def get_collection() -> chromadb.Collection:
 def get_llm() -> ChatGroq:
     global _llm
     if _llm is None:
+        agt = get_agt_governance()
+        if agt is not None:
+            allowed, reason = agt.evaluate_tool_call("llm_generate", {"model": "openai/gpt-oss-20b"})
+            if not allowed:
+                raise PermissionError(f"AGT denied llm_generate: {reason}")
         _llm = ChatGroq(
             api_key=settings.groq_api_key,
             model="openai/gpt-oss-20b",
@@ -86,6 +99,24 @@ def get_guardrails() -> Optional[object]:
     return _init_rails()
 
 
+def get_agt_governance() -> Optional[object]:
+    """Return the AGT governance engine, or None if disabled/unavailable."""
+    global _agt, _agt_ready
+    if _agt_ready:
+        return _agt
+    _agt_ready = True
+    if not settings.agt_enabled:
+        return None
+    try:
+        from agt import AGTGovernance
+
+        _agt = AGTGovernance()
+    except Exception as exc:  # noqa: BLE001 - AGT must never break the app
+        print(f"[agt] initialization failed: {exc}")
+        _agt = None
+    return _agt
+
+
 # ---------------------------------------------------------------------------
 # Ingest
 # ---------------------------------------------------------------------------
@@ -96,6 +127,15 @@ def add_pdf(pdf_path: str | Path) -> int:
 
     Returns the number of chunks stored.
     """
+    agt = get_agt_governance()
+    if agt is not None:
+        allowed, reason = agt.evaluate_tool_call(
+            "pdf_ingest",
+            {"path": str(pdf_path)},
+        )
+        if not allowed:
+            raise PermissionError(f"AGT denied pdf_ingest: {reason}")
+
     path = Path(pdf_path)
     loader = PyPDFLoader(str(path))
     docs = loader.load()
@@ -132,6 +172,16 @@ def search(query: str, top_k: int = 4) -> list[str]:
     The query text is passed straight to Chroma so it embeds with the same
     model used at ingestion time (Chroma's default embedding function).
     """
+    agt = get_agt_governance()
+    if agt is not None:
+        allowed, reason = agt.evaluate_tool_call(
+            "chroma_query",
+            {"query": query[:200], "top_k": top_k},
+        )
+        if not allowed:
+            print(f"[agt] chroma_query denied: {reason}")
+            return []
+
     collection = get_collection()
     result = collection.query(
         query_texts=[query],
@@ -177,7 +227,8 @@ def ask(question: str, session_id: str = "default") -> dict:
     (PostgresChatMessageHistory); long-term context comes from Mem0. The new
     Q/A exchange is then saved back into both.
 
-    NemoGuardrails input/output checks are applied when enabled.
+    NemoGuardrails input/output checks and Microsoft AGT tool-level
+    governance are applied when enabled.
     """
     chunks = search(question)
     context = format_context(chunks) if chunks else ""
@@ -187,6 +238,10 @@ def ask(question: str, session_id: str = "default") -> dict:
 
     messages = _prompt(question, context, long_term, recent)
 
+    agt = get_agt_governance()
+    agt_blocked = False
+    agt_reason = ""
+
     guardrails = get_guardrails()
     if guardrails is not None:
         # Register the RAG step (retrieval + memory + LLM) as a Nemo action, then
@@ -194,6 +249,15 @@ def ask(question: str, session_id: str = "default") -> dict:
         # the input and output rails around it.
         def _rag_answer(**_kwargs) -> str:
             msgs = _prompt(question, context, long_term, recent)
+            # AGT pre-tool-call evaluation for the LLM generation
+            agt_inner = get_agt_governance()
+            if agt_inner is not None:
+                allowed, reason = agt_inner.evaluate_tool_call(
+                    "llm_generate",
+                    {"prompt_length": sum(len(m.content) for m in msgs)},
+                )
+                if not allowed:
+                    raise PermissionError(f"AGT denied llm_generate: {reason}")
             response = get_llm().invoke(msgs)
             return response.content if hasattr(response, "content") else str(response)
 
@@ -223,10 +287,26 @@ def ask(question: str, session_id: str = "default") -> dict:
                 "session_id": session_id,
                 "guardrails_blocked": True,
                 "guardrails_reason": reason,
+                "agt_blocked": agt_blocked,
+                "agt_reason": agt_reason,
             }
     else:
-        response = get_llm().invoke(messages)
-        answer = response.content if hasattr(response, "content") else str(response)
+        # AGT pre-tool-call evaluation for the LLM generation
+        if agt is not None:
+            allowed, reason = agt.evaluate_tool_call(
+                "llm_generate",
+                {"prompt_length": sum(len(m.content) for m in messages)},
+            )
+            if not allowed:
+                agt_blocked = True
+                agt_reason = reason
+                answer = f"I'm sorry, I can't respond to that. {reason}"
+            else:
+                response = get_llm().invoke(messages)
+                answer = response.content if hasattr(response, "content") else str(response)
+        else:
+            response = get_llm().invoke(messages)
+            answer = response.content if hasattr(response, "content") else str(response)
 
     # persist into both tiers of memory
     save_exchange(session_id, question, answer)
@@ -237,4 +317,6 @@ def ask(question: str, session_id: str = "default") -> dict:
         "sources": chunks,
         "session_id": session_id,
         "guardrails_blocked": False,
+        "agt_blocked": agt_blocked,
+        "agt_reason": agt_reason,
     }
