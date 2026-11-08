@@ -1,0 +1,24 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+venv/
+
+# Environment / secrets
+.env
+
+# Vector DB persistence
+chroma_db/
+
+# Uploads
+uploads/
+
+# Logs
+*.log
+server_*.log

@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+python-multipart
+pydantic-settings
+langchain
+langchain-groq
+langchain-community
+langchain-text-splitters
+sqlalchemy
+chromadb
+pypdf
+mem0ai
+psycopg[binary]
