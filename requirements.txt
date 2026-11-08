@@ -11,3 +11,4 @@ chromadb
 pypdf
 mem0ai
 psycopg[binary]
+nemoguardrails

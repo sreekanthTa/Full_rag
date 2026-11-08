@@ -21,9 +21,13 @@ from memory import load_recent_messages, save_exchange, mem0_add, mem0_get
 # Shared resources
 # ---------------------------------------------------------------------------
 
+_GUARDRAILS_DIR = Path(__file__).resolve().parent / "guardrails"
+
 _chroma_client = None
 _collection = None
 _llm = None
+_rails = None
+_rails_ready = False
 
 
 def get_client() -> chromadb.ClientAPI:
@@ -56,6 +60,30 @@ def get_llm() -> ChatGroq:
             max_tokens=8192,
         )
     return _llm
+
+
+def _init_rails() -> Optional[object]:
+    """Lazy-build the NemoGuardrails engine from guardrails/config.yml."""
+    global _rails, _rails_ready
+    if _rails_ready:
+        return _rails
+    _rails_ready = True
+    try:
+        from nemoguardrails import RailsConfig, LLMRails
+
+        config = RailsConfig.from_path(str(_GUARDRAILS_DIR))
+        _rails = LLMRails(config)
+    except Exception as exc:  # noqa: BLE001 - guardrails must never break the app
+        print(f"[guardrails] initialization failed: {exc}")
+        _rails = None
+    return _rails
+
+
+def get_guardrails() -> Optional[object]:
+    """Return the guardrails engine, or None if disabled/unavailable."""
+    if not settings.guardrails_enabled:
+        return None
+    return _init_rails()
 
 
 # ---------------------------------------------------------------------------
@@ -148,6 +176,8 @@ def ask(question: str, session_id: str = "default") -> dict:
     Short-term context comes from the session's persisted Postgres history
     (PostgresChatMessageHistory); long-term context comes from Mem0. The new
     Q/A exchange is then saved back into both.
+
+    NemoGuardrails input/output checks are applied when enabled.
     """
     chunks = search(question)
     context = format_context(chunks) if chunks else ""
@@ -156,8 +186,47 @@ def ask(question: str, session_id: str = "default") -> dict:
     recent = load_recent_messages(session_id)
 
     messages = _prompt(question, context, long_term, recent)
-    response = get_llm().invoke(messages)
-    answer = response.content if hasattr(response, "content") else str(response)
+
+    guardrails = get_guardrails()
+    if guardrails is not None:
+        # Register the RAG step (retrieval + memory + LLM) as a Nemo action, then
+        # run the turn through Nemo so the flows in guardrails/config.yml apply
+        # the input and output rails around it.
+        def _rag_answer(**_kwargs) -> str:
+            msgs = _prompt(question, context, long_term, recent)
+            response = get_llm().invoke(msgs)
+            return response.content if hasattr(response, "content") else str(response)
+
+        guardrails.register_action(_rag_answer, name="GenerateRagAnswer")
+        try:
+            result = guardrails.generate(
+                messages=[{"role": "user", "content": question}],
+                # Enable the `self check facts` output rail and give it the
+                # retrieved chunks to ground the answer against.
+                state={"check_facts": True, "relevant_chunks": chunks},
+            )
+            content = (
+                result.get("content", "") if isinstance(result, dict) else str(result)
+            )
+            answer, blocked, reason = content.strip(), False, ""
+        except Exception as exc:  # noqa: BLE001 - enable_rails_exceptions -> blocked
+            answer, blocked, reason = "I'm sorry, I can't respond to that.", True, str(exc)
+
+        if blocked:
+            # Still persist the blocked exchange for auditing, but return the
+            # guardrail refusal message instead of the model output.
+            save_exchange(session_id, question, answer)
+            mem0_add(question, answer, session_id)
+            return {
+                "answer": answer,
+                "sources": [],
+                "session_id": session_id,
+                "guardrails_blocked": True,
+                "guardrails_reason": reason,
+            }
+    else:
+        response = get_llm().invoke(messages)
+        answer = response.content if hasattr(response, "content") else str(response)
 
     # persist into both tiers of memory
     save_exchange(session_id, question, answer)
@@ -167,4 +236,5 @@ def ask(question: str, session_id: str = "default") -> dict:
         "answer": answer,
         "sources": chunks,
         "session_id": session_id,
+        "guardrails_blocked": False,
     }

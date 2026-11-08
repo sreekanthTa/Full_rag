@@ -1,0 +1,10 @@
+# Custom flow so the RAG answer runs inside Nemo's engine.
+#
+# Nemo only applies the input/output rails declared in config.yml when a request
+# goes through its engine. This flow makes the RAG step (registered in
+# rails.py as the "GenerateRagAnswer" action) the bot turn, so:
+#   - self check input  runs on the user message before the action
+#   - self check output runs on the answer before it is returned
+flow user ask
+  $answer = await GenerateRagAnswer()
+  bot $answer

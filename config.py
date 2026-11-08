@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     chunk_size: int = 1000
     chunk_overlap: int = 200
 
+    # NemoGuardrails
+    guardrails_enabled: bool = True
+
     @property
     def groq_ready(self) -> bool:
         return bool(self.groq_api_key)

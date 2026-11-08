@@ -3,7 +3,24 @@
     "allow": [
       "Shell(.venvScriptspython.exe:*)",
       "Shell(netstat:*)",
-      "Shell(findstr:*)"
+      "Shell(findstr:*)",
+      "Shell(python -c \"import nemoguardrails, inspect, nemoguardrails.rails.llm.llmrails as m; print('version:', nemoguardrails.__version__); print(inspect.signature(m.LLMRails.generate))\")",
+      "Shell(python -c \"import nemoguardrails, inspect; from nemoguardrails import RailsConfig; print(inspect.signature(RailsConfig.from_path))\")",
+      "Shell(python -c \"from nemoguardrails import RailsConfig, LLMRails; c = RailsConfig.from_path('guardrails'); print('config ok'); r = LLMRails(c); print('rails ok')\")",
+      "Shell(python -c \"import nemoguardrails.llm.models.initializer as i, inspect; print(inspect.getsource(i.init_llm_model))\")",
+      "Shell(python -c \"import nemoguardrails.llm.frameworks.default as d, inspect; print(inspect.getsource(d.DefaultLLMFramework.create_model)); print(inspect.getsource(d._resolve_base_url))\")",
+      "Shell(python -c \"import nemoguardrails.llm.frameworks.default as d, inspect; print(inspect.getsource(d.DefaultFramework.create_model)); print(inspect.getsource(d._resolve_base_url))\")",
+      "Shell(python -c \"import nemoguardrails.rails.llm.config as c, inspect; print(inspect.getsource(c))\")",
+      "Shell(python -c \"import nemoguardrails.rails.llm.llmrails as m, inspect; src=inspect.getsource(m.LLMRails._init_llms); print(src)\")",
+      "Shell(python -c \"import nemoguardrails.llm.frameworks.default as d, inspect; print(inspect.getsource(d._resolve_api_key))\")",
+      "Shell(python -c \"import nemoguardrails.rails.llm.llmrails as m, inspect; print(inspect.getsource(m.LLMRails._prepare_model_kwargs))\")",
+      "Shell(python -c \"import os; from pathlib import Path; print('env exists:', Path('.env').exists()); print('GROQ_API_KEY in os.environ:', 'GROQ_API_KEY' in os.environ)\")",
+      "Shell(python -c \"import nemoguardrails.llm.frameworks.default as d; print('groq' in d._API_KEY_ENV_VARS); print(list(d._API_KEY_ENV_VARS.keys()))\")",
+      "Shell(python -c \"import os; base=r'C:\\Users\\sreek\\rag_assitant\\.venv\\Lib\\site-packages\\nemoguardrails\\library'; print(open(os.path.join(base,'sensitive_data_detection','rail.py'),encoding='utf-8').read())\")",
+      "Shell(python -c \"import os; base=r'C:\\Users\\sreek\\rag_assitant\\.venv\\Lib\\site-packages\\nemoguardrails\\library'; print(open(os.path.join(base,'sensitive_data_detection','rail_config.py'),encoding='utf-8').read())\")",
+      "Shell(python -c \"import importlib.util, importlib.metadata as md; print('installed' if importlib.util.find_spec('nemoguardrails') else 'NOT installed'); try: print('version', md.version('nemoguardrails')) except Exception as e: print('version n/a', e)\")",
+      "Shell(python -c \"import os, nemoguardrails; p=os.path.dirname(nemoguardrails.__file__); root=os.path.join(p,'colang','v0_24') if os.path.isdir(os.path.join(p,'colang','v0_24')) else os.path.join(p,'colang'); print(root); import re flows={} for dirpath,_,files in os.walk(root): for f in files: if f.endswith('.co') or f.endswith('.colang'): fp=os.path.join(dirpath,f) try: txt=open(fp,encoding='utf-8').read() except: continue for m in re.finditer(r'define\\s+flow\\s+(\\w+)', txt): flows.setdefault(m.group(1), fp) for k,v in sorted(flows.items()): print(k, '->', os.path.relpath(v, p))\")",
+      "Shell(python -c \"import os, nemoguardrails, re; p=os.path.dirname(nemoguardrails.__file__); root=os.path.join(p,'library','self_check'); print('dirs:', sorted(os.listdir(root))) import glob for fp in glob.glob(root+'/**/*.co', recursive=True)+glob.glob(root+'/**/*.colang', recursive=True): txt=open(fp,encoding='utf-8',errors='ignore').read() for m in re.finditer(r'define\\s+flow\\s+([\\w]+)', txt): print('FLOW', m.group(1), '->', os.path.relpath(fp,p))\")"
     ],
     "deny": [],
     "defaultMode": "default"

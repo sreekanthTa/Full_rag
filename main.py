@@ -4,6 +4,7 @@ Run with: uvicorn main:app --reload
 Endpoints:
   POST /upload   -> upload a PDF, chunk + embed + store in Chroma
   POST /ask      -> ask a question, get a RAG answer using both memory tiers
+                    (NemoGuardrails input/output checks applied)
   GET  /memory   -> list long-term memories for a session
   GET  /history  -> fetch a session's recent short-term chat history
   POST /evaluate -> run RAGAS evaluation over the built-in test cases
@@ -55,6 +56,7 @@ class HealthResponse(BaseModel):
     groq_ready: bool
     mem0_ready: bool
     vector_db: str
+    guardrails_ready: bool
 
 
 # ---------------------------------------------------------------------------
@@ -63,11 +65,13 @@ class HealthResponse(BaseModel):
 
 @app.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
+    gr = rag_engine.get_guardrails()
     return HealthResponse(
         status="ok",
         groq_ready=settings.groq_ready,
         mem0_ready=settings.mem0_ready,
         vector_db=settings.vector_db_path,
+        guardrails_ready=gr is not None,
     )
 
 
