@@ -6,6 +6,7 @@ Endpoints:
   POST /ask      -> ask a question, get a RAG answer using both memory tiers
   GET  /memory   -> list long-term memories for a session
   GET  /history  -> fetch a session's recent short-term chat history
+  POST /evaluate -> run RAGAS evaluation over the built-in test cases
   DELETE /memory -> clear long-term memories + short-term buffer for a session
 """
 from __future__ import annotations
@@ -124,6 +125,16 @@ def get_history(session_id: str = "default") -> dict:
         for m in messages
     ]
     return {"session_id": session_id, "history": history}
+
+
+@app.post("/evaluate")
+def evaluate() -> dict:
+    """Run RAGAS evaluation over the built-in test cases (can take a while)."""
+    try:
+        from evaluation import run_evaluation
+        return run_evaluation()
+    except Exception as exc:  # noqa: BLE001 - surface eval errors to caller
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @app.delete("/memory")

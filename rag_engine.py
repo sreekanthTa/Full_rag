@@ -51,6 +51,9 @@ def get_llm() -> ChatGroq:
             api_key=settings.groq_api_key,
             model="openai/gpt-oss-20b",
             temperature=0.2,
+            # gpt-oss-20b spends tokens on reasoning; leave enough room that
+            # longer structured outputs (e.g. RAGAS judge calls) aren't cut off.
+            max_tokens=8192,
         )
     return _llm
 

@@ -1,2 +1,3 @@
 - Keeps frontend/UI code in its own separate folder, never mixed in with backend code at the repo root. Confidence: 0.85
 - Runs the dev servers (backend/frontend) themselves — don't start, restart, or kill server processes on their behalf; work against their running instance instead. Confidence: 0.8
+- Prefers established, industry-standard libraries over hand-rolled implementations (e.g., wants `ragas` for RAG evaluation rather than a custom scoring script), even if it means adding new dependencies to the environment. Confidence: 0.7
