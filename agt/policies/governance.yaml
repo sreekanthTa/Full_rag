@@ -1,47 +1,24 @@
-# Microsoft Agent Governance Toolkit (AGT) policy for the Full-RAG assistant.
-#
-# Declarative PolicyDocument consumed by agent_os.policies.PolicyEvaluator.
-# Rules are evaluated by priority (highest first); the first matching rule
-# decides. If no rule matches, `defaults.action` applies (default-deny here).
-#
-# Context fields available to rules: tool_name, content (flattened args),
-# agent_id, session_id, plus any top-level kwarg passed by the caller.
-
 version: "1.0"
 name: "full-rag-governance"
-description: "Tool-level governance for the Full-RAG assistant (Chroma, LLM, Mem0, PDF)"
-inherit: false
+description: >
+  Tool-level governance for the Full-RAG assistant: deny destructive tools,
+  block dangerous payloads, and allow only the tools this app uses.
 
 defaults:
   action: deny
 
-# Documentation only (the rule below is what actually enforces it).
-tool_allowlist:
-  - chroma_query
-  - llm_generate
-  - mem0_read
-  - mem0_write
-  - pdf_ingest
-
 rules:
-  # 1. Hard deny-list of destructive / privileged tools.
+  # 1. Hard block of dangerous tools, whatever the args
   - name: deny_destructive_tools
     priority: 100
     action: deny
     condition:
       field: tool_name
       operator: in
-      value:
-        - delete_collection
-        - drop_database
-        - execute_raw_sql
-        - delete_file
-        - write_file
-        - run_command
-        - execute_code
-    message: "Tool is on the governance deny-list"
+      value: [delete_collection, drop_database, execute_raw_sql, delete_file, write_file, run_command, execute_code]
+    message: "Tool is on the deny-list"
 
-  # 2. Block destructive payloads in tool arguments.
+  # 2. Block dangerous payloads inside any tool's args
   - name: deny_dangerous_content
     priority: 90
     action: deny
@@ -49,19 +26,14 @@ rules:
       field: content
       operator: matches
       value: '(?i)(rm\s+-rf|drop\s+(table|database)|truncate\s+table|xp_cmdshell|or\s+1\s*=\s*1|;\s*--)'
-    message: "Tool arguments match a blocked pattern"
+    message: "Arguments match a blocked pattern"
 
-  # 3. Explicit allow-list for the tools this app actually uses.
+  # 3. Allow only the tools this app uses
   - name: allow_known_tools
-    priority: 50
+    priority: 80
     action: allow
     condition:
       field: tool_name
       operator: in
-      value:
-        - chroma_query
-        - llm_generate
-        - mem0_read
-        - mem0_write
-        - pdf_ingest
-    message: "Tool is on the allow-list"
+      value: [chroma_query, llm_generate, mem0_read, mem0_write, pdf_ingest]
+    message: "Tool is allow-listed"

@@ -1,0 +1,6 @@
+assignments:
+  rag-assistant: writer
+custom_permissions:
+  writer: [chroma_query, llm_generate, mem0_read, mem0_write, pdf_ingest]
+  reader: [chroma_query, mem0_read]
+  admin:  [chroma_query, llm_generate, mem0_read, mem0_write, pdf_ingest]

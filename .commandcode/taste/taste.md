@@ -4,6 +4,9 @@
 - Favors declarative, config-driven setups (e.g., configuring guardrails flows in `config.yml`) over imperative Python code, and questions/simplifies away extra code files when a config approach could work. Confidence: 0.8
 - Dislikes wasted effort/tokens on simple tasks — wants a direct answer, not extensive deep-diving and verification when the task is straightforward. Confidence: 0.95
 - Wants code that reads simply and linearly, top-to-bottom — plain functions, settings pinned at the top, minimal cleverness/indirection (e.g., "that file needs to be readable bro"). Confidence: 0.85
-- Wants features implemented fully end-to-end and production-ready — not partial scaffolds, mocks, or fail-open stubs. Confidence: 0.6
+- Wants everything production-grade, including naming: real modules under the package with matching tests, not throwaway scaffold files (rejected `learn_policy.py` as "we are building prod grade, give proper name"). No partial scaffolds, mocks, or fail-open stubs. Confidence: 0.8
 - Conducts red-team/security testing with PyRIT, targeting either the app's API endpoint or the LLM vendor API directly — the two target modes serve different purposes (end-to-end app defense vs. base-model guardrails). Confidence: 0.7
-- When requesting explanations of code, wants them incremental — line by line and step by step, one file/block at a time — explicitly not one big brain-dump of the whole change. Confidence: 0.8
+- Wants everything delivered incrementally, one step at a time — whether explaining code (line by line, one file/block at a time) or building it (a single file/command per reply, then wait). Explicitly not one big brain-dump of the whole change: "don't fuck me with all data, go like a teacher." Confidence: 0.8
+- Dislikes being asked clarifying/multiple-choice questions mid-task — wants the assistant to pick a sensible default and keep handing over the next step instead of pausing for a decision. Confidence: 0.7
+- Wants to be taught like a student — expects a plain-English, analogy-driven "here's the big picture / what we're doing and why" overview before any code is written, then guided through the work step by step. Confidence: 0.75
+- Expects his explicit instructions to be executed as given rather than swapped for the assistant's preferred alternative; pushes back when redirected ("please do as i said"). Confidence: 0.6

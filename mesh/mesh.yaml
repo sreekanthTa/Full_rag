@@ -1,0 +1,7 @@
+agent:
+  name: "rag-assistant"
+  sponsor: "sponsor@example.com"
+  organization: "full-rag"
+  capabilites: [chroma_query, llm_generate, mem0_read, mem0_write, pdf_ingest]
+
+trust_domain: "agentmesh.local"
