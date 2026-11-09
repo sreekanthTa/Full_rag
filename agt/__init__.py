@@ -5,6 +5,6 @@ the RAG pipeline (Chroma retrieval, LLM calls, Mem0 operations).
 """
 from __future__ import annotations
 
-from .governance import AGTGovernance, get_agt_governance
+from .governance import AGTGovernance, get_agt_governance, verify_audit_integrity
 
-__all__ = ["AGTGovernance", "get_agt_governance"]
+__all__ = ["AGTGovernance", "get_agt_governance", "verify_audit_integrity"]

@@ -4,4 +4,6 @@
 - Favors declarative, config-driven setups (e.g., configuring guardrails flows in `config.yml`) over imperative Python code, and questions/simplifies away extra code files when a config approach could work. Confidence: 0.8
 - Dislikes wasted effort/tokens on simple tasks — wants a direct answer, not extensive deep-diving and verification when the task is straightforward. Confidence: 0.95
 - Wants code that reads simply and linearly, top-to-bottom — plain functions, settings pinned at the top, minimal cleverness/indirection (e.g., "that file needs to be readable bro"). Confidence: 0.85
+- Wants features implemented fully end-to-end and production-ready — not partial scaffolds, mocks, or fail-open stubs. Confidence: 0.6
 - Conducts red-team/security testing with PyRIT, targeting either the app's API endpoint or the LLM vendor API directly — the two target modes serve different purposes (end-to-end app defense vs. base-model guardrails). Confidence: 0.7
+- When requesting explanations of code, wants them incremental — line by line and step by step, one file/block at a time — explicitly not one big brain-dump of the whole change. Confidence: 0.8

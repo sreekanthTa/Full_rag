@@ -58,6 +58,8 @@ class HealthResponse(BaseModel):
     vector_db: str
     guardrails_ready: bool
     agt_ready: bool
+    agt_policy_count: int = 0
+    agt_audit_enabled: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -66,15 +68,19 @@ class HealthResponse(BaseModel):
 
 @app.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
+    from agt.governance import get_agt_engine
+
     gr = rag_engine.get_guardrails()
-    agt = rag_engine.get_agt_governance()
+    engine = get_agt_engine()
     return HealthResponse(
         status="ok",
         groq_ready=settings.groq_ready,
         mem0_ready=settings.mem0_ready,
         vector_db=settings.vector_db_path,
         guardrails_ready=gr is not None,
-        agt_ready=agt is not None,
+        agt_ready=engine is not None,
+        agt_policy_count=len(engine.policies) if engine is not None else 0,
+        agt_audit_enabled=settings.agt_audit_enabled,
     )
 
 

@@ -22,3 +22,8 @@ uploads/
 # Logs
 *.log
 server_*.log
+
+# AGT audit log (SQLite + WAL sidecars)
+agt/audit.db
+agt/audit.db-wal
+agt/audit.db-shm

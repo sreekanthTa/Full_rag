@@ -1,0 +1,12 @@
+# Per-tool call budgets for the Full-RAG assistant.
+#
+# Enforced by agt/governance.py with a token bucket per tool
+# (agent_os.policies.rate_limiting.TokenBucket).
+#   capacity    = per_minute
+#   refill_rate = per_minute / 60  (tokens/second)
+# Tools without an entry are not rate-limited.
+budgets:
+  llm_generate:
+    per_minute: 60
+  chroma_query:
+    per_minute: 120

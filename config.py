@@ -46,6 +46,13 @@ class Settings(BaseSettings):
     agt_policy_dir: str = str(BASE_DIR / "agt" / "policies")
     agt_agent_id: str = "rag-assistant"
     agt_session_id: str = "default"
+    # Block when the engine is unavailable or a policy evaluation errors.
+    agt_fail_closed: bool = True
+    # Log denials but never block (useful for staging).
+    agt_shadow_mode: bool = False
+    # Tamper-evident decision log (SQLite + Merkle chain).
+    agt_audit_enabled: bool = True
+    agt_audit_db: str = str(BASE_DIR / "agt" / "audit.db")
 
     @property
     def groq_ready(self) -> bool:
