@@ -1,9 +1,12 @@
 """Hypervisor pillar 2 - Commitment Anchoring: seal a delta chain with a verifiable commitment."""
 from __future__ import annotations
+import logging
 import threading
 
 from mesh import identity
 from provenance import SESSION, delta
+
+logger = logging.getLogger(__name__)
 
 _engine = None
 _ready = False
@@ -21,7 +24,7 @@ def _build():
             from hypervisor.audit.commitment import CommitmentEngine
             _engine = CommitmentEngine()
         except Exception as exc:
-            print(f"[provenance.commitment] init failed: {exc}")
+            logger.warning("commitment init failed: %s", exc)
             _engine = None
     return _engine
 

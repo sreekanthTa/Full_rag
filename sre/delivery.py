@@ -1,6 +1,9 @@
 """SRE pillar 3 - Progressive Delivery: blue/green rollouts gated on health."""
 from __future__ import annotations
+import logging
 import threading
+
+logger = logging.getLogger(__name__)
 
 _manager = None
 _ready = False
@@ -18,7 +21,7 @@ def _build():
             from agent_sre.delivery import BlueGreenManager, BlueGreenConfig
             _manager = BlueGreenManager(BlueGreenConfig(drain_timeout_seconds=0))
         except Exception as exc:
-            print(f"[sre.delivery] init failed: {exc}")
+            logger.warning("delivery init failed: %s", exc)
             _manager = None
     return _manager
 

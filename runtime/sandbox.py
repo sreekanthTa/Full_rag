@@ -2,9 +2,12 @@
 from __future__ import annotations
 import asyncio
 import concurrent.futures
+import logging
 import threading
 
 from mesh import identity
+
+logger = logging.getLogger(__name__)
 
 _hypervisor = None
 _ready = False
@@ -22,7 +25,7 @@ def _build():
             from agent_runtime import Hypervisor
             _hypervisor = Hypervisor()
         except Exception as exc:
-            print(f"[runtime.sandbox] init failed: {exc}")
+            logger.warning("sandbox init failed: %s", exc)
             _hypervisor = None
     return _hypervisor
 
@@ -55,7 +58,7 @@ def create() -> str | None:
     try:
         return _run(_go())
     except Exception as exc:
-        print(f"[runtime.sandbox] create failed: {exc}")
+        logger.warning("sandbox create failed: %s", exc)
         return None
 
 def join(session_id: str, sigma: float = 0.9) -> str | None:
@@ -67,7 +70,7 @@ def join(session_id: str, sigma: float = 0.9) -> str | None:
         ring = _run(h.join_session(session_id, identity.did() or "rag-assistant", sigma_raw=sigma))
         return ring.name if ring is not None else None
     except Exception as exc:
-        print(f"[runtime.sandbox] join failed: {exc}")
+        logger.warning("sandbox join failed: %s", exc)
         return None
 
 def monitor() -> list:
@@ -78,7 +81,7 @@ def monitor() -> list:
     try:
         return _run(h.monitor_sessions())
     except Exception as exc:
-        print(f"[runtime.sandbox] monitor failed: {exc}")
+        logger.warning("sandbox monitor failed: %s", exc)
         return []
 
 def close(session_id: str) -> str | None:
@@ -89,5 +92,5 @@ def close(session_id: str) -> str | None:
     try:
         return _run(h.terminate_session(session_id))
     except Exception as exc:
-        print(f"[runtime.sandbox] close failed: {exc}")
+        logger.warning("sandbox close failed: %s", exc)
         return None

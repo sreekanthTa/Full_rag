@@ -2,10 +2,13 @@
 
 
 from __future__ import annotations
+import logging
 import threading
 from pathlib import Path
 import yaml
 from mesh import identity
+
+logger = logging.getLogger(__name__)
 
 _CONFIG = Path(__file__).resolve().parent / "mesh.yaml"
 
@@ -48,7 +51,7 @@ def _build():
                     organization=agent.get("organization"),
                 )
         except Exception as exc:
-            print(f"[mesh.credentials] init failed: {exc}")
+            logger.warning("credentials init failed: %s", exc)
 
 def issue(capabilites = None, resources = None, ttl_seconds=None) -> dict | None:
     """Mint a short-lived credential (bearer token) for this agent."""

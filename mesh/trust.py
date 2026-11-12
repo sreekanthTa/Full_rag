@@ -1,9 +1,13 @@
 """Mesh pillar 3 - Trust: this agent's 0-1000 reputation score."""
 
 from __future__ import annotations
+import logging
 import threading
 
+from config import settings
 from mesh import identity
+
+logger = logging.getLogger(__name__)
 
 _DEFAULT_SCORE = 500
 
@@ -26,9 +30,9 @@ def _build():
         try:
             from agentmesh.trust_types import TrustTracker
             _tracker = TrustTracker()
-            _agent = identity.did() or "rag-assitant"
+            _agent = identity.did() or settings.agt_agent_id
         except Exception as exc:
-                    print(f"[mesh.trust] init failed: {exc}")
+                    logger.warning("trust init failed: %s", exc)
 
 def score() -> int:
     """Current trust score on the 0-1000 scale."""

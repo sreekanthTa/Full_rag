@@ -11,6 +11,7 @@ to the tamper-evident audit log.
 """
 from __future__ import annotations
 
+import logging
 import threading
 from pathlib import Path
 
@@ -18,6 +19,8 @@ import yaml
 
 from agt.pillars import audit, policy, rbac
 from config import settings
+
+logger = logging.getLogger(__name__)
 
 _BUDGETS_PATH = Path(__file__).resolve().parent / "budgets.yaml"
 
@@ -29,7 +32,7 @@ def _load_budgets() -> dict:
 
         data = yaml.safe_load(_BUDGETS_PATH.read_text(encoding="utf-8")) or {}
     except Exception as exc:  # noqa: BLE001 - budgets are optional
-        print(f"[agt.governance] budgets unavailable: {exc}")
+        logger.warning("budgets unavailable: %s", exc)
         return {}
 
     buckets: dict = {}
@@ -89,7 +92,7 @@ def get_agt_engine() -> AGTGovernance | None:
         try:
             _engine = AGTGovernance()
         except Exception as exc:  # noqa: BLE001 - AGT must never break the app
-            print(f"[agt.governance] init failed: {exc}")
+            logger.warning("governance init failed: %s", exc)
             _engine = None
     return _engine
 

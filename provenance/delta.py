@@ -1,9 +1,12 @@
 """Hypervisor pillar 1 - Delta Engine: record state changes as a hash-linked chain."""
 from __future__ import annotations
+import logging
 import threading
 
 from mesh import identity
 from provenance import SESSION
+
+logger = logging.getLogger(__name__)
 
 _engine = None
 _ready = False
@@ -21,7 +24,7 @@ def _build():
             from hypervisor.audit.delta import DeltaEngine
             _engine = DeltaEngine(SESSION)
         except Exception as exc:
-            print(f"[provenance.delta] init failed: {exc}")
+            logger.warning("delta init failed: %s", exc)
             _engine = None
     return _engine
 

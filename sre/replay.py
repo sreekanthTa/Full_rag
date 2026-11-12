@@ -1,8 +1,11 @@
 """SRE pillar 2 - Replay: capture an execution as a trace and re-run it."""
 from __future__ import annotations
+import logging
 import threading
 
 from mesh import identity
+
+logger = logging.getLogger(__name__)
 
 _engine = None
 _ready = False
@@ -20,7 +23,7 @@ def _build():
             from agent_sre.replay import ReplayEngine
             _engine = ReplayEngine()
         except Exception as exc:
-            print(f"[sre.replay] init failed: {exc}")
+            logger.warning("replay init failed: %s", exc)
             _engine = None
     return _engine
 

@@ -1,10 +1,13 @@
 """Pillar 3 - Audit: tamper-evident record of every governance decision."""
 
 from __future__ import annotations
+import logging
 import threading
 from pathlib import Path
 
 from config import settings
+
+logger = logging.getLogger(__name__)
 
 _recorder = None
 _ready = False
@@ -25,7 +28,7 @@ def _build():
             db.parent.mkdir(parents=True, exist_ok=True)
             _recorder = FlightRecorder(str(db))
         except Exception as exc:
-            print(f"[agt.audit] init failed: {exc}")
+            logger.warning("audit init failed: %s", exc)
             _recorder = None
 
     return _recorder
@@ -49,7 +52,7 @@ def record(tool_name: str, args:dict, allowed: bool, reason: str):
           rec.log_violation(trace_id, reason)
 
     except Exception as exc:
-        print(f"[agt.audit] record failed: {exc}")
+        logger.warning("audit record failed: %s", exc)
 
 def verify() -> dict:
     rec = _build()

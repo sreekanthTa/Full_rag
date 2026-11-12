@@ -1,11 +1,13 @@
 """Pillar 2 - RBAC: role-based permission checks for tool calls."""
 from __future__ import annotations
+import logging
 import threading
 from pathlib import Path
 
 from agent_os.integrations.rbac import RBACManager
 from config import settings
 
+logger = logging.getLogger(__name__)
 
 _ROLES_PATH = Path(__file__).resolve().parent.parent / "roles.yaml"
 _manager = None
@@ -24,7 +26,7 @@ def _build():
         try:
             _manager = RBACManager.from_yaml(str(_ROLES_PATH)) if _ROLES_PATH.exists() else None
         except Exception as exc:
-            print(f"[agt.rbac] init failed: {exc}")
+            logger.warning("rbac init failed: %s", exc)
             _manager = None
     return _manager
 

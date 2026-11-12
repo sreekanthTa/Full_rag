@@ -134,15 +134,52 @@ class TestGovernanceIntegration(unittest.TestCase):
             self.assertIsInstance(sid, str)
             self.assertTrue(sid.startswith("session:"))
 
+    # --- security / correctness fixes ---------------------------------------
+
+    def test_fail_closed_when_engine_unavailable(self) -> None:
+        original = rag_engine.get_agt_governance
+        rag_engine.get_agt_governance = lambda: None
+        previous = rag_engine.settings.agt_fail_closed
+        try:
+            rag_engine.settings.agt_fail_closed = True
+            out = rag_engine.ask("blocked?", "t-session")
+            self.assertTrue(out["agt_blocked"])
+            self.assertIn("governance unavailable", out["answer"])
+
+            rag_engine.settings.agt_fail_closed = False
+            out = rag_engine.ask("allowed?", "t-session")
+            self.assertFalse(out["agt_blocked"])
+            self.assertEqual(out["answer"], "test answer")
+        finally:
+            rag_engine.settings.agt_fail_closed = previous
+            rag_engine.get_agt_governance = original
+
+    def test_agent_identity_is_consistent(self) -> None:
+        import runtime.limit as limit
+        import runtime.ternot as ternot
+
+        # Every pillar now falls back to the same configured agent id.
+        self.assertEqual(limit._agent(), ternot._agent())
+        self.assertNotEqual(limit._agent(), "rag-assitant")
+
 
 class TestGovernanceEndpoints(unittest.TestCase):
+    ADMIN_KEY = "test-admin-key"
+
     @classmethod
     def setUpClass(cls) -> None:
         from fastapi.testclient import TestClient
 
         import main
+        from config import settings
+
+        settings.admin_api_key = cls.ADMIN_KEY
+        settings.allow_insecure_dev = False
 
         cls.client = TestClient(main.app)
+
+    def _admin(self) -> dict:
+        return {"X-Admin-Key": self.ADMIN_KEY}
 
     def test_health_snapshot(self) -> None:
         body = self.client.get("/health").json()
@@ -155,17 +192,28 @@ class TestGovernanceEndpoints(unittest.TestCase):
         body = self.client.get("/slo").json()
         self.assertIn("compliance", body)
 
+    def test_admin_requires_key(self) -> None:
+        # Control endpoints are fail-closed: no key -> 401, wrong key -> 401.
+        self.assertEqual(self.client.post("/admin/kill").status_code, 401)
+        self.assertEqual(
+            self.client.post("/admin/kill", headers={"X-Admin-Key": "wrong"}).status_code,
+            401,
+        )
+
     def test_provenance_endpoints(self) -> None:
         self.assertEqual(self.client.get("/provenance/verify").status_code, 200)
-        self.assertIn("seal", self.client.post("/provenance/seal").json())
+        resp = self.client.post("/provenance/seal", headers=self._admin())
+        self.assertIn("seal", resp.json())
 
     def test_replay_endpoint(self) -> None:
         self.assertEqual(self.client.get("/replay/last").status_code, 200)
 
     def test_delivery_endpoints(self) -> None:
-        deploy = self.client.post("/admin/deploy", params={"version": "t1"}).json()
+        deploy = self.client.post(
+            "/admin/deploy", params={"version": "t1"}, headers=self._admin()
+        ).json()
         self.assertEqual(deploy["state"], "deploying")
-        promote = self.client.post("/admin/promote").json()
+        promote = self.client.post("/admin/promote", headers=self._admin()).json()
         self.assertEqual(promote["state"], "active")
 
 

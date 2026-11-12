@@ -4,6 +4,7 @@ and retrieval-augmented answering via langchain_groq.
 from __future__ import annotations
 
 import hashlib
+import logging
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -18,6 +19,8 @@ import governance
 from config import settings
 from memory import load_recent_messages, save_exchange, mem0_add, mem0_get
 from agt import get_agt_governance
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Shared resources
@@ -88,7 +91,7 @@ def _init_rails() -> Optional[object]:
         config = RailsConfig.from_path(str(_GUARDRAILS_DIR))
         _rails = LLMRails(config)
     except Exception as exc:  # noqa: BLE001 - guardrails must never break the app
-        print(f"[guardrails] initialization failed: {exc}")
+        logger.warning("guardrails initialization failed: %s", exc)
         _rails = None
     return _rails
 
@@ -113,7 +116,7 @@ def get_agt_governance() -> Optional[object]:
 
         _agt = AGTGovernance()
     except Exception as exc:  # noqa: BLE001 - AGT must never break the app
-        print(f"[agt] initialization failed: {exc}")
+        logger.warning("agt initialization failed: %s", exc)
         _agt = None
     return _agt
 
@@ -184,7 +187,7 @@ def search(query: str, top_k: int = 4) -> list[str]:
             {"query": query[:200], "top_k": top_k},
         )
         if not allowed:
-            print(f"[agt] chroma_query denied: {reason}")
+            logger.warning("chroma_query denied: %s", reason)
             return []
 
     collection = get_collection()
@@ -281,6 +284,23 @@ def ask(question: str, session_id: str = "default") -> dict:
     agt = get_agt_governance()
     agt_blocked = False
     agt_reason = ""
+
+    # Governance engine unavailable: honor fail-closed before touching the model.
+    if agt is None and settings.agt_fail_closed:
+        agt_blocked = True
+        agt_reason = "governance unavailable"
+        refusal = "I'm sorry, I can't respond to that. governance unavailable"
+        _record(session_id, question, refusal, ok=False, operation="agt_unavailable")
+        return {
+            "answer": refusal,
+            "sources": [],
+            "session_id": session_id,
+            "admitted": True,
+            "guardrails_blocked": False,
+            "agt_blocked": True,
+            "agt_reason": agt_reason,
+            "agent": agent,
+        }
 
     # 4. Generation, with NemoGuardrails around it when enabled.
     guardrails = get_guardrails()

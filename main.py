@@ -20,29 +20,42 @@ Agent OS operations (see governance.py for the pillar wiring):
 """
 from __future__ import annotations
 
+import logging
 import shutil
 import threading
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
 import governance
 import rag_engine
 from config import settings
+from logging_config import configure_logging
 from memory import clear_short_term, load_recent_messages, mem0_clear, mem0_get
+from security import require_admin
 
-app = FastAPI(title="RAG Assistant", version="1.0.0")
-
-UPLOAD_DIR = Path("uploads")
-UPLOAD_DIR.mkdir(exist_ok=True)
+logger = logging.getLogger(__name__)
 
 
-@app.on_event("startup")
-def _warm_database() -> None:
-    """Open the Postgres connection in the background so the first
-    /history call doesn't pay the ~15s cold-start cost."""
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Startup and shutdown: logging, config checks, warm-up, governance hook."""
+    configure_logging()
+
+    problems = settings.validate()
+    for problem in problems:
+        logger.warning("config: %s", problem)
+    if settings.strict and problems:
+        raise RuntimeError("invalid configuration: " + "; ".join(problems))
+
+    # Hook the runtime kill switch into the app's terminated flag.
+    governance.register_termination_hook()
+
+    # Open the Postgres connection in the background so the first /history
+    # call doesn't pay the ~15s cold-start cost.
     if settings.postgres_ready:
         threading.Thread(
             target=load_recent_messages,
@@ -50,11 +63,13 @@ def _warm_database() -> None:
             daemon=True,
         ).start()
 
+    yield
 
-@app.on_event("startup")
-def _start_governance() -> None:
-    """Hook the runtime kill switch into the app's terminated flag."""
-    governance.register_termination_hook()
+
+app = FastAPI(title="RAG Assistant", version="1.0.0", lifespan=lifespan)
+
+UPLOAD_DIR = Path("uploads")
+UPLOAD_DIR.mkdir(exist_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -214,7 +229,7 @@ def provenance_verify() -> dict:
     return {"verified": governance.verify_provenance()}
 
 
-@app.post("/provenance/seal")
+@app.post("/provenance/seal", dependencies=[Depends(require_admin)])
 def provenance_seal() -> dict:
     """Anchor the current delta-chain root as a verifiable commitment."""
     return {"seal": governance.seal()}
@@ -226,7 +241,7 @@ def replay_last() -> dict:
     return governance.replay_trace()
 
 
-@app.post("/admin/pause")
+@app.post("/admin/pause", dependencies=[Depends(require_admin)])
 def admin_pause() -> dict:
     """Pause the agent (AGT kernel signal - SIGSTOP)."""
     from agt.pillars import signals
@@ -234,7 +249,7 @@ def admin_pause() -> dict:
     return signals.pause()
 
 
-@app.post("/admin/resume")
+@app.post("/admin/resume", dependencies=[Depends(require_admin)])
 def admin_resume() -> dict:
     """Resume the agent (AGT kernel signal - SIGCONT)."""
     from agt.pillars import signals
@@ -242,7 +257,7 @@ def admin_resume() -> dict:
     return signals.resume()
 
 
-@app.post("/admin/kill")
+@app.post("/admin/kill", dependencies=[Depends(require_admin)])
 def admin_kill(reason: str = "manual") -> dict:
     """Terminate the agent's runtime session via the kill switch.
 
@@ -253,14 +268,14 @@ def admin_kill(reason: str = "manual") -> dict:
     return ternot.kill(reason=reason)
 
 
-@app.post("/admin/revive")
+@app.post("/admin/revive", dependencies=[Depends(require_admin)])
 def admin_revive() -> dict:
     """Clear a previous kill so the agent can serve requests again."""
     governance.revive()
     return {"terminated": governance.terminated()}
 
 
-@app.post("/admin/deploy")
+@app.post("/admin/deploy", dependencies=[Depends(require_admin)])
 def admin_deploy(version: str) -> dict:
     """Progressive delivery: deploy a version to the inactive (green) side."""
     from sre import delivery
@@ -268,7 +283,7 @@ def admin_deploy(version: str) -> dict:
     return delivery.deploy(version)
 
 
-@app.post("/admin/promote")
+@app.post("/admin/promote", dependencies=[Depends(require_admin)])
 def admin_promote() -> dict:
     """Progressive delivery: health-gate and switch traffic to the new side."""
     from sre import delivery
@@ -280,7 +295,7 @@ def admin_promote() -> dict:
         raise HTTPException(status_code=409, detail=str(exc))
 
 
-@app.post("/admin/rollback")
+@app.post("/admin/rollback", dependencies=[Depends(require_admin)])
 def admin_rollback() -> dict:
     """Progressive delivery: switch traffic back to the previous side."""
     from sre import delivery

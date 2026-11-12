@@ -10,12 +10,16 @@ automatically on each query.
 """
 from __future__ import annotations
 
+import logging
+
 import httpx
 import sqlalchemy
 from langchain_core.messages import BaseMessage, messages_from_dict
 from langchain_community.chat_message_histories import PostgresChatMessageHistory
 
 from config import settings
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Postgres-backed short-term memory (via PostgresChatMessageHistory)
@@ -86,7 +90,7 @@ def load_recent_messages(session_id: str) -> list[BaseMessage]:
         # Rows come back newest-first; reverse into conversation order.
         return messages_from_dict([row[0] for row in reversed(rows)])
     except Exception as exc:  # noqa: BLE001 - memory must never break ask
-        print(f"[pg] load history failed: {exc}")
+        logger.warning("load history failed: %s", exc)
         return []
 
 
@@ -99,7 +103,7 @@ def save_exchange(session_id: str, question: str, answer: str) -> None:
         hist.add_user_message(question)
         hist.add_ai_message(answer)
     except Exception as exc:  # noqa: BLE001
-        print(f"[pg] save exchange failed: {exc}")
+        logger.warning("save exchange failed: %s", exc)
 
 
 def clear_short_term(session_id: str) -> None:
@@ -109,7 +113,7 @@ def clear_short_term(session_id: str) -> None:
     try:
         get_history(session_id).clear()
     except Exception as exc:  # noqa: BLE001
-        print(f"[pg] clear short-term failed: {exc}")
+        logger.warning("clear short-term failed: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +155,7 @@ def mem0_add(question: str, answer: str, session_id: str) -> dict | None:
         return resp.json()
     except httpx.HTTPError as exc:
         # Non-blocking: log-and-return so a memory failure never breaks ask.
-        print(f"[mem0] add failed: {exc}")
+        logger.warning("mem0 add failed: %s", exc)
         return None
 
 
@@ -175,7 +179,7 @@ def mem0_get(session_id: str) -> list:
         # Some versions wrap them in {"results": [...]}.
         return data.get("results", []) if isinstance(data, dict) else []
     except httpx.HTTPError as exc:
-        print(f"[mem0] get failed: {exc}")
+        logger.warning("mem0 get failed: %s", exc)
         return []
 
 
@@ -194,5 +198,5 @@ def mem0_clear(session_id: str) -> bool:
         resp.raise_for_status()
         return True
     except httpx.HTTPError as exc:
-        print(f"[mem0] clear failed: {exc}")
+        logger.warning("mem0 clear failed: %s", exc)
         return False

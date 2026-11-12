@@ -1,8 +1,11 @@
 """Mesh pillar 4 - Delegation: hand a narrowed subset of capabilities to a child agent."""
 from __future__ import annotations
+import logging
 import threading
 
 from mesh import identity
+
+logger = logging.getLogger(__name__)
 
 _MAX_DEPTH = 5  # = agentmesh.constants.DEFAULT_DELEGATION_MAX_DEPTH
 
@@ -31,7 +34,7 @@ def _build():
                 chain.add_link(root)
                 _chain = chain
         except Exception as exc:
-            print(f"[mesh.delegation] init failed: {exc}")
+            logger.warning("delegation init failed: %s", exc)
             _chain = None
     return _chain
 
@@ -42,7 +45,7 @@ def delegate(name: str, capabilities: list[str]) -> dict | None:
     if chain is None or parent is None:
         return None
     if chain.get_depth() >= _MAX_DEPTH:
-        print("[mesh.delegation] refused: max delegation depth reached")
+        logger.warning("delegation refused: max delegation depth reached")
         return None
 
     granted = [c for c in capabilities if parent.has_capability(c)]  # narrowing

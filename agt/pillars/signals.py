@@ -1,9 +1,12 @@
 """Pillar 5 - Signals: kernel-level pause/resume/kill control for the agent."""
 from __future__ import annotations
+import logging
 import threading
 
 from agent_control_plane.signals import AgentSignal, SignalDispatcher
 from config import settings
+
+logger = logging.getLogger(__name__)
 
 _dispatcher = None
 _ready = False
@@ -21,7 +24,7 @@ def _build():
         try:
             _dispatcher = SignalDispatcher(agent_id=settings.agt_agent_id)
         except Exception as exc:
-            print(f"[agt.signals] init failed: {exc}")
+            logger.warning("signals init failed: %s", exc)
             _dispatcher = None
     return _dispatcher
 

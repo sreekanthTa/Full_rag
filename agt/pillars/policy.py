@@ -1,9 +1,12 @@
 """Pillar 1 - Policy Engine: declarative allow/deny for tool calls."""
 from __future__ import annotations
+import logging
 import threading
 from pathlib import Path
 from agent_os.policies import PolicyEvaluator
 from config import settings
+
+logger = logging.getLogger(__name__)
 
 _POLICY_DIR = Path(settings.agt_policy_dir)
 _evaluator = None
@@ -25,7 +28,7 @@ def _build():
             ev.load_policies(str(_POLICY_DIR))
             _evaluator = ev if ev.policies else None
         except Exception as exc:
-            print(f"[agt.policy] init failed: {exc}")
+            logger.warning("policy init failed: %s", exc)
             _evaluator = None
         return _evaluator
 

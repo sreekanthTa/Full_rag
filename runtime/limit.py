@@ -1,8 +1,12 @@
 """Runtime pillar 2 - Resource Limits: per-ring token-bucket rate limiting."""
 from __future__ import annotations
+import logging
 import threading
+from config import settings
 from mesh import identity
 from runtime import rings
+
+logger = logging.getLogger(__name__)
 
 _session = "main"
 _limiter = None
@@ -21,12 +25,12 @@ def _build():
             from agent_runtime import AgentRateLimiter
             _limiter = AgentRateLimiter()
         except Exception as exc:
-            print(f"[runtime.limits] init failed: {exc}")
+            logger.warning("limits init failed: %s", exc)
             _limiter = None
     return _limiter
 
 def _agent() -> str:
-    return identity.did() or "rag-assistant"
+    return identity.did() or settings.agt_agent_id
 
 def allow(cost: float = 1.0) -> bool:
     """True if our agent may spend `cost` right now under its current ring."""

@@ -1,8 +1,11 @@
 """Mesh pillar 5 - Protocol: A2A / MCP agent cards and the peer trust gate."""
 from __future__ import annotations
+import logging
 import threading
 
 from mesh import identity
+
+logger = logging.getLogger(__name__)
 
 _REQUIRED_SCORE = 700  # agentmesh default peer-trust threshold
 
@@ -31,7 +34,7 @@ def _build():
                     trust_bridge=TrustBridge(agent_did=str(ident.did)),
                 )
         except Exception as exc:
-            print(f"[mesh.protocol] init failed: {exc}")
+            logger.warning("protocol init failed: %s", exc)
 
 def card() -> dict | None:
     """Our signed Agent Card - what we advertise to peers over A2A/MCP."""
@@ -44,7 +47,7 @@ def verify_card(data: dict) -> bool:
         from agentmesh.trust import TrustedAgentCard
         return bool(TrustedAgentCard(**data).verify_signature())
     except Exception as exc:
-        print(f"[mesh.protocol] verify_card failed: {exc}")
+        logger.warning("verify_card failed: %s", exc)
         return False
 
 def accepts(data: dict, required_score: int = _REQUIRED_SCORE) -> bool:

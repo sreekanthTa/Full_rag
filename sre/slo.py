@@ -1,6 +1,9 @@
 """SRE pillar 1 - SLO + Error Budget: our reliability promise and how much is left."""
 from __future__ import annotations
+import logging
 import threading
+
+logger = logging.getLogger(__name__)
 
 _TARGET = 0.99
 _WINDOW = "30d"
@@ -26,7 +29,7 @@ def _build():
             _slo = SLO(name="rag-assistant", indicators=[_sli],
                        error_budget=ErrorBudget(total=_BUDGET_TOTAL))
         except Exception as exc:
-            print(f"[sre.slo] init failed: {exc}")
+            logger.warning("slo init failed: %s", exc)
             _sli = None
             _slo = None
     return _slo

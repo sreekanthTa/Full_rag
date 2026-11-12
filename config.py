@@ -54,6 +54,28 @@ class Settings(BaseSettings):
     agt_audit_enabled: bool = True
     agt_audit_db: str = str(BASE_DIR / "agt" / "audit.db")
 
+    # Security / deployment
+    admin_api_key: str = ""
+    allow_insecure_dev: bool = False
+    log_level: str = "INFO"
+    strict: bool = False
+
+    def validate(self) -> list[str]:
+        """Return configuration problems, newest first (empty list when healthy)."""
+        problems: list[str] = []
+        if not self.groq_api_key:
+            problems.append("GROQ_API_KEY is not set - /ask cannot reach the model")
+        if not self.admin_api_key and not self.allow_insecure_dev:
+            problems.append(
+                "ADMIN_API_KEY is not set - control endpoints are disabled "
+                "(set ALLOW_INSECURE_DEV=true for local development)"
+            )
+        if self.agt_fail_closed and not any(Path(self.agt_policy_dir).glob("*.yaml")):
+            problems.append(
+                f"AGT_FAIL_CLOSED is on but no policies exist in {self.agt_policy_dir}"
+            )
+        return problems
+
     @property
     def groq_ready(self) -> bool:
         return bool(self.groq_api_key)

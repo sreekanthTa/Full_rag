@@ -1,8 +1,11 @@
 """SRE pillar 4 - Circuit Breaker: stop hammering a failing dependency."""
 from __future__ import annotations
+import logging
 import threading
 
 from mesh import identity
+
+logger = logging.getLogger(__name__)
 
 _FAILURE_THRESHOLD = 5
 
@@ -25,7 +28,7 @@ def _build():
                 CircuitBreakerConfig(failure_threshold=_FAILURE_THRESHOLD),
             )
         except Exception as exc:
-            print(f"[sre.circuit] init failed: {exc}")
+            logger.warning("circuit init failed: %s", exc)
             _breaker = None
     return _breaker
 

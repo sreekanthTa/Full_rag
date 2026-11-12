@@ -1,6 +1,9 @@
 """Runtime pillar 1 - Execution Rings: what our trust score lets us touch."""
 from __future__ import annotations
+import logging
 import threading
+
+logger = logging.getLogger(__name__)
 
 _enforcer = None
 _ready = False
@@ -21,7 +24,7 @@ def _build():
             from agent_runtime import RingEnforcer
             _enforcer = RingEnforcer()
         except Exception as exc:
-            print(f"[runtime.rings] init failed: {exc}")
+            logger.warning("rings init failed: %s", exc)
             _enforcer = None
     return _enforcer
 

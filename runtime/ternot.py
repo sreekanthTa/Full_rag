@@ -1,8 +1,12 @@
 """Runtime pillar 4 - Termination Control: the kill switch."""
 from __future__ import annotations
+import logging
 import threading
 
+from config import settings
 from mesh import identity
+
+logger = logging.getLogger(__name__)
 
 _session = "main"
 _switch = None
@@ -21,12 +25,12 @@ def _build():
             from agent_runtime import KillSwitch
             _switch = KillSwitch()
         except Exception as exc:
-            print(f"[runtime.termination] init failed: {exc}")
+            logger.warning("termination init failed: %s", exc)
             _switch = None
     return _switch
 
 def _agent() -> str:
-    return identity.did() or "rag-assistant"
+    return identity.did() or settings.agt_agent_id
 
 def _reason(name: str):
     from agent_runtime import KillResult
