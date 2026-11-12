@@ -43,8 +43,12 @@ def create() -> str | None:
     from agent_runtime import SessionConfig
 
     async def _go():
-        session = await h.create_session(SessionConfig(), identity.did() or "rag-assistant")
+        agent = identity.did() or "rag-assistant"
+        session = await h.create_session(SessionConfig(), agent)
         sid = session.sso.session_id
+        # A session needs at least one participant before it can be activated,
+        # so join our agent first, then activate.
+        await h.join_session(sid, agent, sigma_raw=0.9)
         await h.activate_session(sid)
         return sid
 

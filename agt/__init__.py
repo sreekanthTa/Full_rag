@@ -11,5 +11,22 @@ Five governance pillars live in ``agt.pillars``:
 from __future__ import annotations
 
 from .pillars import audit, policy, rbac, signals, vfs
+from .governance import (
+    AGTGovernance,
+    get_agt_engine,
+    get_agt_governance,
+    verify_audit_integrity,
+)
 
-__all__ = ["policy", "rbac", "audit", "vfs", "signals"]
+__all__ = [
+    "policy",
+    "rbac",
+    "audit",
+    "vfs",
+    "signals",
+    "governance",
+    "AGTGovernance",
+    "get_agt_engine",
+    "get_agt_governance",
+    "verify_audit_integrity",
+]

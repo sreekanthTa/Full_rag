@@ -14,6 +14,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+import governance
 from config import settings
 from memory import load_recent_messages, save_exchange, mem0_add, mem0_get
 from agt import get_agt_governance
@@ -125,44 +126,48 @@ def get_agt_governance() -> Optional[object]:
 def add_pdf(pdf_path: str | Path) -> int:
     """Load a PDF, split into chunks, embed, and store in Chroma.
 
-    Returns the number of chunks stored.
+    Runs under Agent OS governance: AGT approves the ingest tool call, the
+    runtime sandbox gives the work an isolated session, and the result is
+    appended to the tamper-evident provenance chain. Returns chunk count.
     """
+    path = Path(pdf_path)
+
+    # AGT tool-level check (policy + rbac + audit) before touching the file.
     agt = get_agt_governance()
     if agt is not None:
-        allowed, reason = agt.evaluate_tool_call(
-            "pdf_ingest",
-            {"path": str(pdf_path)},
-        )
+        allowed, reason = agt.evaluate_tool_call("pdf_ingest", {"path": str(path)})
         if not allowed:
             raise PermissionError(f"AGT denied pdf_ingest: {reason}")
 
-    path = Path(pdf_path)
-    loader = PyPDFLoader(str(path))
-    docs = loader.load()
+    raw = path.read_bytes()
 
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=settings.chunk_size,
-        chunk_overlap=settings.chunk_overlap,
-    )
-    chunks = splitter.split_documents(docs)
+    # Run the ingest inside an isolated runtime session (the sandbox pillar).
+    with governance.sandbox_session():
+        docs = PyPDFLoader(str(path)).load()
+        splitter = RecursiveCharacterTextSplitter(
+            chunk_size=settings.chunk_size,
+            chunk_overlap=settings.chunk_overlap,
+        )
+        chunks = splitter.split_documents(docs)
 
-    ids: list[str] = []
-    documents: list[str] = []
-    metadatas: list[dict] = []
-    for i, chunk in enumerate(chunks):
-        content = chunk.page_content
-        doc_id = str(uuid.uuid4())
-        ids.append(doc_id)
-        documents.append(content)
-        metadatas.append({
-            "source": path.name,
-            "chunk": i,
-            # cheap content hash so re-upload of identical text can be deduped
-            "hash": hashlib.sha256(content.encode("utf-8")).hexdigest(),
-        })
+        ids: list[str] = []
+        documents: list[str] = []
+        metadatas: list[dict] = []
+        for i, chunk in enumerate(chunks):
+            content = chunk.page_content
+            ids.append(str(uuid.uuid4()))
+            documents.append(content)
+            metadatas.append({
+                "source": path.name,
+                "chunk": i,
+                # cheap content hash so re-upload of identical text can be deduped
+                "hash": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+            })
 
-    collection = get_collection()
-    collection.add(ids=ids, documents=documents, metadatas=metadatas)
+        get_collection().add(ids=ids, documents=documents, metadatas=metadatas)
+
+    # Append the ingest to the tamper-evident provenance chain.
+    governance.record_state(path.name, "ingest", hashlib.sha256(raw).hexdigest())
     return len(chunks)
 
 
@@ -220,53 +225,86 @@ def _prompt(question: str, context: str, long_term: list, recent_msgs: list) -> 
     return [SystemMessage(content="\n\n".join(sections)), HumanMessage(content=question)]
 
 
-def ask(question: str, session_id: str = "default") -> dict:
-    """Run the full RAG answer flow for one question.
+def _record(session_id: str, question: str, answer: str, ok: bool,
+            operation: str) -> None:
+    """Persist an exchange and log its governance outcome.
 
-    Short-term context comes from the session's persisted Postgres history
-    (PostgresChatMessageHistory); long-term context comes from Mem0. The new
-    Q/A exchange is then saved back into both.
-
-    NemoGuardrails input/output checks and Microsoft AGT tool-level
-    governance are applied when enabled.
+    Writes to both memory tiers, feeds the SLO / error budget, and appends a
+    provenance delta (the answer's hash) to the tamper-evident chain.
     """
+    save_exchange(session_id, question, answer)
+    mem0_add(question, answer, session_id)
+    governance.record_outcome(ok)
+    governance.record_state(session_id, operation,
+                            hashlib.sha256(answer.encode("utf-8")).hexdigest())
+
+
+def ask(question: str, session_id: str = "default") -> dict:
+    """Run the full RAG answer flow for one question, under Agent OS governance.
+
+    The flow, in order:
+
+      1. context  - mesh identity + trust decide the runtime ring
+      2. admit    - runtime rate budget; refuse before doing any real work
+      3. retrieve - Chroma search + both memory tiers build the prompt
+      4. generate - AGT checks the tool call, the circuit breaker guards the
+                    model call, and (when enabled) NemoGuardrails wrap the turn
+      5. record   - SLO outcome + a provenance delta for the exchange
+
+    Short-term context is the session's Postgres history; long-term context is
+    Mem0. The Q/A exchange is saved back into both.
+    """
+    # 1. Who is asking, and which ring their trust score earns.
+    agent = governance.context()
+
+    # 2. Admission control - refuse an exhausted budget before any work.
+    admitted, reason = governance.admit()
+    if not admitted:
+        return {
+            "answer": f"I'm sorry, {reason}.",
+            "sources": [],
+            "session_id": session_id,
+            "admitted": False,
+            "guardrails_blocked": False,
+            "agt_blocked": False,
+            "agt_reason": "",
+            "agent": agent,
+        }
+
+    # 3. Retrieval + memory - build the grounded prompt.
     chunks = search(question)
     context = format_context(chunks) if chunks else ""
-
     long_term = mem0_get(session_id)
     recent = load_recent_messages(session_id)
-
     messages = _prompt(question, context, long_term, recent)
 
     agt = get_agt_governance()
     agt_blocked = False
     agt_reason = ""
 
+    # 4. Generation, with NemoGuardrails around it when enabled.
     guardrails = get_guardrails()
     if guardrails is not None:
-        # Register the RAG step (retrieval + memory + LLM) as a Nemo action, then
-        # run the turn through Nemo so the flows in guardrails/config.yml apply
-        # the input and output rails around it.
+        # Register the RAG step as a Nemo action, then run the turn through Nemo
+        # so the flows in guardrails/config.yml apply input/output rails.
         def _rag_answer(**_kwargs) -> str:
-            msgs = _prompt(question, context, long_term, recent)
-            # AGT pre-tool-call evaluation for the LLM generation
+            # AGT pre-tool-call check, then the circuit-guarded model call.
             agt_inner = get_agt_governance()
             if agt_inner is not None:
-                allowed, reason = agt_inner.evaluate_tool_call(
+                allowed, why = agt_inner.evaluate_tool_call(
                     "llm_generate",
-                    {"prompt_length": sum(len(m.content) for m in msgs)},
+                    {"prompt_length": sum(len(m.content) for m in messages)},
                 )
                 if not allowed:
-                    raise PermissionError(f"AGT denied llm_generate: {reason}")
-            response = get_llm().invoke(msgs)
-            return response.content if hasattr(response, "content") else str(response)
+                    raise PermissionError(f"AGT denied llm_generate: {why}")
+            return governance.generate(messages)
 
         guardrails.register_action(_rag_answer, name="GenerateRagAnswer")
         try:
             result = guardrails.generate(
                 messages=[{"role": "user", "content": question}],
-                # Enable the `self check facts` output rail and give it the
-                # retrieved chunks to ground the answer against.
+                # Enable the `self check facts` output rail and ground it on
+                # the retrieved chunks.
                 state={"check_facts": True, "relevant_chunks": chunks},
             )
             content = (
@@ -278,20 +316,21 @@ def ask(question: str, session_id: str = "default") -> dict:
 
         if blocked:
             # Still persist the blocked exchange for auditing, but return the
-            # guardrail refusal message instead of the model output.
-            save_exchange(session_id, question, answer)
-            mem0_add(question, answer, session_id)
+            # guardrail refusal instead of the model output.
+            _record(session_id, question, answer, ok=False, operation="blocked")
             return {
                 "answer": answer,
                 "sources": [],
                 "session_id": session_id,
+                "admitted": True,
                 "guardrails_blocked": True,
                 "guardrails_reason": reason,
                 "agt_blocked": agt_blocked,
                 "agt_reason": agt_reason,
+                "agent": agent,
             }
     else:
-        # AGT pre-tool-call evaluation for the LLM generation
+        # No guardrails: AGT check directly, then the guarded model call.
         if agt is not None:
             allowed, reason = agt.evaluate_tool_call(
                 "llm_generate",
@@ -302,21 +341,26 @@ def ask(question: str, session_id: str = "default") -> dict:
                 agt_reason = reason
                 answer = f"I'm sorry, I can't respond to that. {reason}"
             else:
-                response = get_llm().invoke(messages)
-                answer = response.content if hasattr(response, "content") else str(response)
+                answer = governance.generate(messages)
         else:
-            response = get_llm().invoke(messages)
-            answer = response.content if hasattr(response, "content") else str(response)
+            answer = governance.generate(messages)
 
-    # persist into both tiers of memory
-    save_exchange(session_id, question, answer)
-    mem0_add(question, answer, session_id)
+    # 5. Persist the exchange, record the SLO outcome + a provenance delta,
+    #    and capture a replayable trace of the turn.
+    _record(session_id, question, answer, ok=True, operation="ask")
+    trace = governance.capture(question, [
+        ("retrieve", {"chunks": len(chunks)}),
+        ("generate", {"answer": answer}),
+    ])
 
     return {
         "answer": answer,
         "sources": chunks,
         "session_id": session_id,
+        "admitted": True,
         "guardrails_blocked": False,
         "agt_blocked": agt_blocked,
         "agt_reason": agt_reason,
+        "agent": agent,
+        "trace_id": trace.trace_id,
     }

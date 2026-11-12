@@ -9,6 +9,14 @@ Endpoints:
   GET  /history  -> fetch a session's recent short-term chat history
   POST /evaluate -> run RAGAS evaluation over the built-in test cases
   DELETE /memory -> clear long-term memories + short-term buffer for a session
+
+Agent OS operations (see governance.py for the pillar wiring):
+  GET  /health            -> liveness + a snapshot of every pillar
+  GET  /slo               -> SLO compliance + error budget
+  GET  /provenance/verify -> is the anchored commitment still valid?
+  POST /provenance/seal   -> anchor the delta chain as a commitment
+  POST /admin/pause|resume|kill   -> agent control (AGT signals + kill switch)
+  POST /admin/deploy|promote|rollback -> blue/green progressive delivery
 """
 from __future__ import annotations
 
@@ -20,6 +28,7 @@ from pathlib import Path
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
+import governance
 import rag_engine
 from config import settings
 from memory import clear_short_term, load_recent_messages, mem0_clear, mem0_get
@@ -42,6 +51,12 @@ def _warm_database() -> None:
         ).start()
 
 
+@app.on_event("startup")
+def _start_governance() -> None:
+    """Hook the runtime kill switch into the app's terminated flag."""
+    governance.register_termination_hook()
+
+
 # ---------------------------------------------------------------------------
 # Schemas
 # ---------------------------------------------------------------------------
@@ -60,6 +75,14 @@ class HealthResponse(BaseModel):
     agt_ready: bool
     agt_policy_count: int = 0
     agt_audit_enabled: bool = False
+    # Agent OS pillars (mesh / runtime / sre / provenance)
+    agent_did: str | None = None
+    trust_score: int = 0
+    ring: str = ""
+    circuit: str = ""
+    slo_status: str | None = None
+    provenance_entries: int = 0
+    provenance_ok: bool | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -68,10 +91,12 @@ class HealthResponse(BaseModel):
 
 @app.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
+    """Liveness plus a one-shot snapshot of every Agent OS pillar."""
     from agt.governance import get_agt_engine
 
     gr = rag_engine.get_guardrails()
     engine = get_agt_engine()
+    snap = governance.snapshot()
     return HealthResponse(
         status="ok",
         groq_ready=settings.groq_ready,
@@ -81,6 +106,13 @@ def health() -> HealthResponse:
         agt_ready=engine is not None,
         agt_policy_count=len(engine.policies) if engine is not None else 0,
         agt_audit_enabled=settings.agt_audit_enabled,
+        agent_did=snap["did"],
+        trust_score=snap["trust"],
+        ring=snap["ring"],
+        circuit=snap["circuit"],
+        slo_status=(snap["slo"] or {}).get("status"),
+        provenance_entries=snap["provenance_entries"],
+        provenance_ok=snap["provenance_ok"],
     )
 
 
@@ -117,7 +149,11 @@ def ask(req: AskRequest) -> dict:
     question = req.question.strip()
     if not question:
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
-    return rag_engine.ask(question, req.session_id)
+    result = rag_engine.ask(question, req.session_id)
+    if result.get("admitted") is False:
+        # Runtime rate budget was exhausted - tell the caller to back off.
+        raise HTTPException(status_code=429, detail=result["answer"])
+    return result
 
 
 @app.get("/memory")
@@ -155,3 +191,102 @@ def delete_memory(session_id: str = "default") -> dict:
     mem0_clear(session_id)
     clear_short_term(session_id)
     return {"message": f"Memory cleared for session '{session_id}'."}
+
+
+# ---------------------------------------------------------------------------
+# Agent OS operations
+#
+# These expose the pillars we built as small, direct endpoints. They are
+# grouped here so the governance surface is easy to find.
+# ---------------------------------------------------------------------------
+
+@app.get("/slo")
+def slo_status() -> dict:
+    """Current SLO compliance and error budget (sre pillar)."""
+    from sre import slo
+
+    return slo.status()
+
+
+@app.get("/provenance/verify")
+def provenance_verify() -> dict:
+    """Check the anchored commitment still matches the live delta chain."""
+    return {"verified": governance.verify_provenance()}
+
+
+@app.post("/provenance/seal")
+def provenance_seal() -> dict:
+    """Anchor the current delta-chain root as a verifiable commitment."""
+    return {"seal": governance.seal()}
+
+
+@app.get("/replay/last")
+def replay_last() -> dict:
+    """Deterministically re-run the last captured turn; report divergence."""
+    return governance.replay_trace()
+
+
+@app.post("/admin/pause")
+def admin_pause() -> dict:
+    """Pause the agent (AGT kernel signal - SIGSTOP)."""
+    from agt.pillars import signals
+
+    return signals.pause()
+
+
+@app.post("/admin/resume")
+def admin_resume() -> dict:
+    """Resume the agent (AGT kernel signal - SIGCONT)."""
+    from agt.pillars import signals
+
+    return signals.resume()
+
+
+@app.post("/admin/kill")
+def admin_kill(reason: str = "manual") -> dict:
+    """Terminate the agent's runtime session via the kill switch.
+
+    After a kill, /ask is refused (429) until /admin/revive is called.
+    """
+    from runtime import ternot
+
+    return ternot.kill(reason=reason)
+
+
+@app.post("/admin/revive")
+def admin_revive() -> dict:
+    """Clear a previous kill so the agent can serve requests again."""
+    governance.revive()
+    return {"terminated": governance.terminated()}
+
+
+@app.post("/admin/deploy")
+def admin_deploy(version: str) -> dict:
+    """Progressive delivery: deploy a version to the inactive (green) side."""
+    from sre import delivery
+
+    return delivery.deploy(version)
+
+
+@app.post("/admin/promote")
+def admin_promote() -> dict:
+    """Progressive delivery: health-gate and switch traffic to the new side."""
+    from sre import delivery
+
+    try:
+        return delivery.promote()
+    except RuntimeError as exc:
+        # No inactive side to promote / validation could not run.
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@app.post("/admin/rollback")
+def admin_rollback() -> dict:
+    """Progressive delivery: switch traffic back to the previous side."""
+    from sre import delivery
+
+    try:
+        return delivery.rollback()
+    except RuntimeError as exc:
+        # Nothing to roll back to (no previous switch yet).
+        raise HTTPException(status_code=409, detail=str(exc))
